@@ -80,7 +80,7 @@ public static class SpotifyAuthHelper
     private static string ToPrefix(string callbackUrl)
     {
         var uri = new Uri(callbackUrl);
-        var path = uri.AbsolutePath.EndsWith("/") ? uri.AbsolutePath : uri.AbsolutePath + "/";
+        var path = uri.AbsolutePath.EndsWith('/') ? uri.AbsolutePath : uri.AbsolutePath + "/";
         return $"{uri.Scheme}://{uri.Host}:{uri.Port}{path}";
     }
 }

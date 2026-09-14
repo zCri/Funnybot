@@ -6,20 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Funnybot.Modules;
 
-public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionContext>
+public sealed partial class PlaylistModule(SpotifyPlaylistService spotify, DailyLimitService limits, ILogger<PlaylistModule> log) : InteractionModuleBase<SocketInteractionContext>
 {
     private const string ReauthMessage = "Spotify token needs re-auth. Clear the refresh token and restart the bot.";
-
-    private readonly SpotifyPlaylistService _spotify;
-    private readonly DailyLimitService _limits;
-    private readonly ILogger<PlaylistModule> _log;
-
-    public PlaylistModule(SpotifyPlaylistService spotify, DailyLimitService limits, ILogger<PlaylistModule> log)
-    {
-        _spotify = spotify;
-        _limits = limits;
-        _log = log;
-    }
 
     private static string SpotifyError(SpotifyAPI.Web.APIException ex, string fallback) =>
         SpotifyPlaylistService.IsMissingScope(ex) ? ReauthMessage : fallback;
@@ -31,7 +20,7 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
     {
         await DeferAsync(ephemeral: true);
 
-        if (_limits.HasAddedToday(Context.User.Id, out var existing))
+        if (limits.HasAddedToday(Context.User.Id, out var existing))
         {
             await FollowupAsync(
                 $"You already added **{existing!.TrackName}** today. Come back tomorrow (UTC).",
@@ -49,7 +38,7 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         IReadOnlyList<SpotifyAPI.Web.FullTrack> results;
         try
         {
-            results = await _spotify.SearchTracksAsync(query, limit: 5);
+            results = await spotify.SearchTracksAsync(query, limit: 5);
         }
         catch (InvalidOperationException ex)
         {
@@ -58,13 +47,13 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "Search failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "Search failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Spotify search failed, try again later."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Search failed");
+            log.LogError(ex, "Search failed");
             await FollowupAsync("Spotify search failed, try again later.", ephemeral: true);
             return;
         }
@@ -116,7 +105,7 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         await DeferAsync(ephemeral: true);
         string trackId = selected[0];
 
-        if (_limits.HasAddedToday(Context.User.Id, out var existing))
+        if (limits.HasAddedToday(Context.User.Id, out var existing))
         {
             await ModifyOriginalResponseAsync(m =>
             {
@@ -130,41 +119,41 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         SpotifyAPI.Web.FullTrack track;
         try
         {
-            track = await _spotify.GetTrackAsync(trackId);
+            track = await spotify.GetTrackAsync(trackId);
         }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "GetTrack failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "GetTrack failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Couldn't load that track, try again."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "GetTrack failed");
+            log.LogError(ex, "GetTrack failed");
             await FollowupAsync("Couldn't load that track, try again.", ephemeral: true);
             return;
         }
 
         try
         {
-            if (await _spotify.IsInPlaylistAsync(trackId))
+            if (await spotify.IsInPlaylistAsync(trackId))
             {
                 await FollowupAsync(
                     $"**{track.Name}** is already in the playlist, pick another one.",
                     ephemeral: true);
                 return;
             }
-            await _spotify.AddToPlaylistAsync(trackId);
+            await spotify.AddToPlaylistAsync(trackId);
         }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "Add failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "Add failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Couldn't add to the playlist, try again."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Add failed");
+            log.LogError(ex, "Add failed");
             await FollowupAsync("Couldn't add to the playlist, try again.", ephemeral: true);
             return;
         }
@@ -175,13 +164,13 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
             track.Id,
             track.Name,
             Artists(track),
-            track.ExternalUrls.TryGetValue("spotify", out var url) ? url : _spotify.PlaylistUrl,
+            track.ExternalUrls.TryGetValue("spotify", out var url) ? url : spotify.PlaylistUrl,
             DateTime.UtcNow);
 
-        var (ok, lostRace) = await _limits.TryAddTodayAsync(record);
+        var (ok, lostRace) = await limits.TryAddTodayAsync(record);
         if (!ok)
         {
-            try { await _spotify.RemoveFromPlaylistAsync(trackId); } catch { }
+            try { await spotify.RemoveFromPlaylistAsync(trackId); } catch { }
             await ModifyOriginalResponseAsync(m =>
             {
                 m.Content = $"You already added **{lostRace!.TrackName}** today.";
@@ -211,13 +200,13 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         await Context.Channel.SendMessageAsync(
             text: $"{Context.User.Mention} added today's song",
             embed: announce);
-        await FollowupAsync($"Added: {_spotify.PlaylistUrl}", ephemeral: true);
+        await FollowupAsync($"Added: {spotify.PlaylistUrl}", ephemeral: true);
     }
 
     [SlashCommand("today", "Show today's picks")]
     public async Task TodayAsync()
     {
-        var picks = _limits.GetToday();
+        var picks = limits.GetToday();
         if (picks.Count == 0)
         {
             await RespondAsync("Nothing added yet today. Use `/add` to be first.", ephemeral: true);
@@ -227,7 +216,7 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
             .WithTitle($"Today's picks ({picks.Count}) - {DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd} UTC")
             .WithDescription(string.Join("\n", picks.Select(p =>
                 $"- **[{p.TrackName}]({p.SpotifyUrl})** - {p.Artists} (<@{p.UserId}>)")))
-            .WithUrl(_spotify.PlaylistUrl)
+            .WithUrl(spotify.PlaylistUrl)
             .WithColor(Color.Blue)
             .Build();
         await RespondAsync(embed: embed, ephemeral: true);
@@ -236,42 +225,42 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
     [SlashCommand("playlist", "Get the shared playlist link")]
     public async Task PlaylistAsync()
     {
-        await RespondAsync(_spotify.PlaylistUrl, ephemeral: false);
+        await RespondAsync(spotify.PlaylistUrl, ephemeral: false);
     }
 
     [SlashCommand("remove", "Remove the song you added today")]
     public async Task RemoveAsync()
     {
         await DeferAsync(ephemeral: true);
-        if (!_limits.HasAddedToday(Context.User.Id, out var existing) || existing is null)
+        if (!limits.HasAddedToday(Context.User.Id, out var existing) || existing is null)
         {
             await FollowupAsync("You haven't added a song today.", ephemeral: true);
             return;
         }
-        try { await _spotify.RemoveFromPlaylistAsync(existing.TrackId); }
+        try { await spotify.RemoveFromPlaylistAsync(existing.TrackId); }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "Remove failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "Remove failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Couldn't remove from Spotify, try again."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Remove failed");
+            log.LogError(ex, "Remove failed");
             await FollowupAsync("Couldn't remove from Spotify, try again.", ephemeral: true);
             return;
         }
-        await _limits.RemoveTodayAsync(Context.User.Id);
+        await limits.RemoveTodayAsync(Context.User.Id);
         await FollowupAsync($"Removed **{existing.TrackName}**, you can `/add` again today.", ephemeral: true);
     }
 
     private async Task PresentSingleTrackAsync(string trackId)
     {
         SpotifyAPI.Web.FullTrack track;
-        try { track = await _spotify.GetTrackAsync(trackId); }
+        try { track = await spotify.GetTrackAsync(trackId); }
         catch (Exception ex)
         {
-            _log.LogError(ex, "GetTrack failed");
+            log.LogError(ex, "GetTrack failed");
             await FollowupAsync("Couldn't load that Spotify link.", ephemeral: true);
             return;
         }
@@ -323,7 +312,7 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
     {
         await DeferAsync(ephemeral: true);
 
-        if (_limits.HasAddedToday(Context.User.Id, out var existing))
+        if (limits.HasAddedToday(Context.User.Id, out var existing))
         {
             await ModifyOriginalResponseAsync(m =>
             {
@@ -334,24 +323,24 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         }
 
         SpotifyAPI.Web.FullTrack track;
-        try { track = await _spotify.GetTrackAsync(trackId); }
+        try { track = await spotify.GetTrackAsync(trackId); }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "GetTrack failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "GetTrack failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Couldn't load that track, try again."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "GetTrack failed");
+            log.LogError(ex, "GetTrack failed");
             await FollowupAsync("Couldn't load that track, try again.", ephemeral: true);
             return;
         }
 
         try
         {
-            if (!await _spotify.IsInPlaylistAsync(trackId))
-                await _spotify.AddToPlaylistAsync(trackId);
+            if (!await spotify.IsInPlaylistAsync(trackId))
+                await spotify.AddToPlaylistAsync(trackId);
             else
             {
                 await FollowupAsync($"**{track.Name}** is already in the playlist.", ephemeral: true);
@@ -360,26 +349,26 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
         }
         catch (SpotifyAPI.Web.APIException ex)
         {
-            _log.LogError(ex, "Add failed. {Detail}", SpotifyPlaylistService.Describe(ex));
+            log.LogError(ex, "Add failed. {Detail}", SpotifyPlaylistService.Describe(ex));
             await FollowupAsync(SpotifyError(ex, "Couldn't add to the playlist, try again."), ephemeral: true);
             return;
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Add failed");
+            log.LogError(ex, "Add failed");
             await FollowupAsync("Couldn't add to the playlist, try again.", ephemeral: true);
             return;
         }
 
         var record = new AddedTrack(Context.User.Id, Context.User.Username, track.Id,
             track.Name, Artists(track),
-            track.ExternalUrls.TryGetValue("spotify", out var url) ? url : _spotify.PlaylistUrl,
+            track.ExternalUrls.TryGetValue("spotify", out var url) ? url : spotify.PlaylistUrl,
             DateTime.UtcNow);
 
-        var (ok, lostRace) = await _limits.TryAddTodayAsync(record);
+        var (ok, lostRace) = await limits.TryAddTodayAsync(record);
         if (!ok)
         {
-            try { await _spotify.RemoveFromPlaylistAsync(trackId); } catch { }
+            try { await spotify.RemoveFromPlaylistAsync(trackId); } catch { }
             await ModifyOriginalResponseAsync(m =>
             {
                 m.Content = $"You already added **{lostRace!.TrackName}** today.";
@@ -409,19 +398,21 @@ public sealed class PlaylistModule : InteractionModuleBase<SocketInteractionCont
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..(max - 1)] + "…";
 
+    [System.Text.RegularExpressions.GeneratedRegex(@"open\.spotify\.com/track/([A-Za-z0-9]{10,})")]
+    private static partial System.Text.RegularExpressions.Regex SpotifyTrackRegex();
+
     private static string? ExtractTrackId(string input)
     {
         input = input.Trim().Trim('<', '>');
         if (input.StartsWith("spotify:track:", StringComparison.OrdinalIgnoreCase))
             return input["spotify:track:".Length..].Split('?')[0];
-        var m = System.Text.RegularExpressions.Regex.Match(input,
-            @"open\.spotify\.com/track/([A-Za-z0-9]{10,})");
+        var m = SpotifyTrackRegex().Match(input);
         return m.Success ? m.Groups[1].Value : null;
     }
 
     private Embed BuildPlaylistEmbed() =>
         new EmbedBuilder()
-            .WithDescription($"[Open the playlist]({_spotify.PlaylistUrl})")
+            .WithDescription($"[Open the playlist]({spotify.PlaylistUrl})")
             .WithColor(Color.DarkPurple)
             .Build();
 }

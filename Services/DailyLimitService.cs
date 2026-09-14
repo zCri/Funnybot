@@ -16,7 +16,7 @@ public sealed class DailyLimitService
 {
     private readonly string _filePath;
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private Dictionary<string, Dictionary<string, AddedTrack>> _data = new();
+    private Dictionary<string, Dictionary<string, AddedTrack>> _data = [];
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
@@ -40,7 +40,7 @@ public sealed class DailyLimitService
             var json = File.ReadAllText(_filePath);
             if (string.IsNullOrWhiteSpace(json)) return;
             _data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, AddedTrack>>>(json, JsonOpts)
-                ?? new();
+                ?? [];
         }
         catch
         {
@@ -50,7 +50,7 @@ public sealed class DailyLimitService
                     File.Copy(_filePath, _filePath + ".bak", overwrite: true);
             }
             catch { }
-            _data = new();
+            _data = [];
         }
     }
 
@@ -88,7 +88,7 @@ public sealed class DailyLimitService
             var key = TodayKey();
             if (!_data.TryGetValue(key, out var day))
             {
-                day = new();
+                day = [];
                 _data[key] = day;
             }
             if (day.TryGetValue(track.UserId.ToString(), out var existing))

@@ -5,32 +5,24 @@ using SpotifyAPI.Web;
 
 namespace Funnybot.Services;
 
-public sealed class SpotifyPlaylistService
+public sealed class SpotifyPlaylistService(IOptions<BotConfig> config, ILogger<SpotifyPlaylistService> log)
 {
-    private readonly BotConfig _config;
-    private readonly ILogger<SpotifyPlaylistService> _log;
     private SpotifyClient? _client;
     private DateTime _tokenExpiresAtUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
-    public string PlaylistId => _config.Spotify.PlaylistId;
+    public string PlaylistId => config.Value.Spotify.PlaylistId;
     public string PlaylistUrl => $"https://open.spotify.com/playlist/{PlaylistId}";
-    public string CallbackUrl => _config.Spotify.CallbackUrl;
+    public string CallbackUrl => config.Value.Spotify.CallbackUrl;
 
     public static readonly string[] RequiredScopes =
-    {
+    [
         Scopes.PlaylistModifyPublic,
         Scopes.PlaylistModifyPrivate,
         Scopes.PlaylistReadPrivate,
         Scopes.PlaylistReadCollaborative,
         Scopes.UserReadPrivate,
-    };
-
-    public SpotifyPlaylistService(IOptions<BotConfig> config, ILogger<SpotifyPlaylistService> log)
-    {
-        _config = config.Value;
-        _log = log;
-    }
+    ];
 
     public async Task<SpotifyClient> GetClientAsync(CancellationToken ct = default)
     {
@@ -42,7 +34,7 @@ public sealed class SpotifyPlaylistService
             if (_client is not null && DateTime.UtcNow < _tokenExpiresAtUtc - TimeSpan.FromMinutes(5))
                 return _client;
 
-            var s = _config.Spotify;
+            var s = config.Value.Spotify;
             if (string.IsNullOrWhiteSpace(s.ClientId) || string.IsNullOrWhiteSpace(s.ClientSecret))
                 throw new InvalidOperationException("Missing Spotify ClientId/ClientSecret.");
             if (string.IsNullOrWhiteSpace(s.RefreshToken))
@@ -69,7 +61,7 @@ public sealed class SpotifyPlaylistService
             Limit = Math.Clamp(limit, 1, 5),
             Market = "from_token",
         }, ct);
-        return result.Tracks.Items ?? new List<FullTrack>();
+        return result.Tracks.Items ?? [];
     }
 
     public async Task<FullTrack> GetTrackAsync(string trackId, CancellationToken ct = default)
@@ -112,12 +104,12 @@ public sealed class SpotifyPlaylistService
         }
         catch (APIException ex) when (IsMissingScope(ex))
         {
-            _log.LogError(ex, "Spotify token missing scopes. {Detail}", Describe(ex));
+            log.LogError(ex, "Spotify token missing scopes. {Detail}", Describe(ex));
             throw new InvalidOperationException("Spotify token missing scopes, re-auth needed.");
         }
         catch (APIException ex)
         {
-            _log.LogWarning(ex, "Spotify playlist check failed. {Detail}", Describe(ex));
+            log.LogWarning(ex, "Spotify playlist check failed. {Detail}", Describe(ex));
         }
     }
 

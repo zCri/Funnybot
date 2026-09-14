@@ -11,69 +11,52 @@ using Microsoft.Extensions.Options;
 
 namespace Funnybot.Services;
 
-public sealed class DiscordBotService : BackgroundService
+public sealed class DiscordBotService(
+    DiscordSocketClient client,
+    InteractionService interactions,
+    IServiceProvider services,
+    IOptions<BotConfig> config,
+    ILogger<DiscordBotService> log,
+    ILoggerFactory logFactory) : BackgroundService
 {
-    private readonly DiscordSocketClient _client;
-    private readonly InteractionService _interactions;
-    private readonly IServiceProvider _services;
-    private readonly BotConfig _config;
-    private readonly ILogger<DiscordBotService> _log;
-    private readonly ILoggerFactory _logFactory;
-
-    public DiscordBotService(
-        DiscordSocketClient client,
-        InteractionService interactions,
-        IServiceProvider services,
-        IOptions<BotConfig> config,
-        ILogger<DiscordBotService> log,
-        ILoggerFactory logFactory)
-    {
-        _client = client;
-        _interactions = interactions;
-        _services = services;
-        _config = config.Value;
-        _log = log;
-        _logFactory = logFactory;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _client.Log += msg => LogDiscord(msg);
-        _interactions.Log += msg => LogDiscord(msg);
-        _client.Ready += OnReadyAsync;
-        _client.InteractionCreated += OnInteractionAsync;
+        client.Log += msg => LogDiscord(msg);
+        interactions.Log += msg => LogDiscord(msg);
+        client.Ready += OnReadyAsync;
+        client.InteractionCreated += OnInteractionAsync;
 
-        if (string.IsNullOrWhiteSpace(_config.DiscordToken))
+        if (string.IsNullOrWhiteSpace(config.Value.DiscordToken))
             throw new InvalidOperationException("Discord token missing. Set Bot:DiscordToken or DISCORD_TOKEN.");
 
-        await _client.LoginAsync(TokenType.Bot, _config.DiscordToken);
-        await _client.StartAsync();
+        await client.LoginAsync(TokenType.Bot, config.Value.DiscordToken);
+        await client.StartAsync();
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
 
-        await _client.StopAsync();
+        await client.StopAsync();
     }
 
     private async Task OnReadyAsync()
     {
         try
         {
-            await _interactions.AddModulesAsync(Assembly.GetAssembly(typeof(PlaylistModule)), _services);
+            await interactions.AddModulesAsync(Assembly.GetAssembly(typeof(PlaylistModule)), services);
 
-            if (_config.GuildId is { } guildId and not 0)
+            if (config.Value.GuildId is { } guildId and not 0)
             {
-                await _interactions.RegisterCommandsToGuildAsync(guildId, deleteMissing: true);
-                _log.LogInformation("Registered slash commands to guild {GuildId}", guildId);
+                await interactions.RegisterCommandsToGuildAsync(guildId, deleteMissing: true);
+                log.LogInformation("Registered slash commands to guild {GuildId}", guildId);
             }
             else
             {
-                await _interactions.RegisterCommandsGloballyAsync(deleteMissing: true);
-                _log.LogInformation("Registered global slash commands (can take up to 1h to appear)");
+                await interactions.RegisterCommandsGloballyAsync(deleteMissing: true);
+                log.LogInformation("Registered global slash commands");
             }
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Failed to register slash commands");
+            log.LogError(ex, "Failed to register slash commands");
         }
     }
 
@@ -81,11 +64,11 @@ public sealed class DiscordBotService : BackgroundService
     {
         try
         {
-            var ctx = new SocketInteractionContext(_client, interaction);
-            var result = await _interactions.ExecuteCommandAsync(ctx, _services);
+            var ctx = new SocketInteractionContext(client, interaction);
+            var result = await interactions.ExecuteCommandAsync(ctx, services);
             if (!result.IsSuccess)
             {
-                _log.LogWarning("Interaction failed: {Reason}", result.ErrorReason);
+                log.LogWarning("Interaction failed: {Reason}", result.ErrorReason);
                 if (!interaction.HasResponded)
                     await interaction.RespondAsync("Something went wrong, try again.", ephemeral: true);
                 else
@@ -94,7 +77,7 @@ public sealed class DiscordBotService : BackgroundService
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Error handling interaction");
+            log.LogError(ex, "Error handling interaction");
             if (!interaction.HasResponded)
             {
                 try { await interaction.RespondAsync("Something went wrong, try again.", ephemeral: true); }
@@ -105,7 +88,7 @@ public sealed class DiscordBotService : BackgroundService
 
     private Task LogDiscord(LogMessage msg)
     {
-        var logger = _logFactory.CreateLogger($"Discord.{msg.Source}");
+        var logger = logFactory.CreateLogger($"Discord.{msg.Source}");
         var level = msg.Severity switch
         {
             LogSeverity.Critical => LogLevel.Critical,
