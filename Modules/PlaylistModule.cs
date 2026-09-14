@@ -198,7 +198,7 @@ public sealed partial class PlaylistModule(SpotifyPlaylistService spotify, Daily
             .Build();
 
         await Context.Channel.SendMessageAsync(
-            text: $"{Context.User.Mention} added today's song",
+            text: $"{Context.User.Mention} added today's song to the playlist ({spotify.PlaylistUrl})",
             embed: announce);
         await FollowupAsync($"Added: {spotify.PlaylistUrl}", ephemeral: true);
     }
@@ -383,7 +383,7 @@ public sealed partial class PlaylistModule(SpotifyPlaylistService spotify, Daily
             m.Components = new ComponentBuilder().Build();
         });
         await Context.Channel.SendMessageAsync(
-            $"{Context.User.Mention} added today's song **[{track.Name}]({record.SpotifyUrl})** - {record.Artists}");
+            $"{Context.User.Mention} added today's song **[{track.Name}]({record.SpotifyUrl})** - {record.Artists} to the playlist ({spotify.PlaylistUrl})");
     }
 
     private static string Artists(SpotifyAPI.Web.FullTrack t) =>
