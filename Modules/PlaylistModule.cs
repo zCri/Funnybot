@@ -225,7 +225,7 @@ public sealed partial class PlaylistModule(SpotifyPlaylistService spotify, Daily
     [SlashCommand("playlist", "Get the shared playlist link")]
     public async Task PlaylistAsync()
     {
-        await RespondAsync(spotify.PlaylistUrl, ephemeral: false);
+        await RespondAsync($"{spotify.PlaylistUrl}?{Random.Shared.Next(10000000, 99999999)}", ephemeral: false);
     }
 
     [SlashCommand("remove", "Remove the song you added today")]
@@ -398,7 +398,7 @@ public sealed partial class PlaylistModule(SpotifyPlaylistService spotify, Daily
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..(max - 1)] + "…";
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"open\.spotify\.com/track/([A-Za-z0-9]{10,})")]
+    [System.Text.RegularExpressions.GeneratedRegex(@"open\.spotify\.com/(?:intl-[A-Za-z-]+/)?track/([A-Za-z0-9]{10,})")]
     private static partial System.Text.RegularExpressions.Regex SpotifyTrackRegex();
 
     private static string? ExtractTrackId(string input)
