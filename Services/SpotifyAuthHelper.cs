@@ -81,6 +81,10 @@ public static class SpotifyAuthHelper
     {
         var uri = new Uri(callbackUrl);
         var path = uri.AbsolutePath.EndsWith('/') ? uri.AbsolutePath : uri.AbsolutePath + "/";
-        return $"{uri.Scheme}://{uri.Host}:{uri.Port}{path}";
+        var host = uri.Host;
+        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
+            && (host == "localhost" || host == "127.0.0.1" || host == "::1"))
+            host = "*";
+        return $"{uri.Scheme}://{host}:{uri.Port}{path}";
     }
 }
